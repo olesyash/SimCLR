@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from utils import save_config_file, accuracy, save_checkpoint
+from utils import save_config_file, accuracy, save_checkpoint, acc
 
 torch.manual_seed(0)
 
@@ -63,7 +63,7 @@ class SimCLR(object):
 
         n_iter = 0
         logging.info(f"Start SimCLR training for {self.args.epochs} epochs.")
-        logging.info(f"Training with gpu: {self.args.disable_cuda}.")
+        logging.info(f"Training with gpu: {not self.args.disable_cuda}.")
 
         for epoch_counter in range(self.args.epochs):
             for images, _ in tqdm(train_loader):
@@ -107,3 +107,57 @@ class SimCLR(object):
             'optimizer': self.optimizer.state_dict(),
         }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
         logging.info(f"Model checkpoint and metadata has been saved at {self.writer.log_dir}.")
+
+    def test(self, test_loader, test_set_len, device):
+        # save config file
+        save_config_file(self.writer.log_dir, self.args)
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        top1_accuracy = 0
+        logging.info(f"Start SimCLR test")
+        logging.info(f"Testing with gpu: {not self.args.disable_cuda}.")
+
+        for counter, (images, labels) in enumerate(test_loader):
+            images = torch.cat(images, dim=0)
+            images = images.to(device)
+            labels = labels.to(device)
+        
+            logits = self.model(images)
+        
+            top1, top5 = accuracy(logits, labels, topk=(1,5))
+            top1_accuracy += top1[0]
+        top1_accuracy /= (counter + 1)
+
+        logging.info(f"Test accuracy: {top1_accuracy.item()}")
+        logging.info("Test has finished.")
+    
+    # def test(self, test_loader, test_set_len):
+    #     # save config file
+    #     save_config_file(self.writer.log_dir, self.args)
+
+    #     running_corrects = 0
+    #     logging.info(f"Start SimCLR test")
+    #     logging.info(f"Testing with gpu: {not self.args.disable_cuda}.")
+
+    #     for images, labels in tqdm(test_loader):
+    #         images = torch.cat(images, dim=0)
+    #         images = images.to(self.args.device)
+    #         labels = labels.to(self.args.device)
+    #         for param in self.model.parameters():
+    #             param.requires_grad = False
+
+    #         with autocast(enabled=self.args.fp16_precision):
+    #             features = self.model(images)
+    #             logits, _ = self.info_nce_loss(features)
+    #             _, preds = torch.max(logits, 1)
+    #             print("Size of logits: ", logits.size())
+    #             print("Size of preds: ", preds.size())
+    #             print("Size of labels: ", labels.size())
+    #             running_corrects += torch.sum(preds == labels)
+
+    #     logging.info(f"Running_corrects: {running_corrects}")
+    #     epoch_acc = running_corrects.double() / test_set_len * 100    
+    #     logging.info(f"Test accuracy: {epoch_acc}")
+    #     logging.info("Test has finished.")
+
