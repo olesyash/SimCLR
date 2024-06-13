@@ -76,8 +76,6 @@ def main():
 
     if not test:
         train_dataset = dataset.get_dataset(args.dataset_name, args.n_views)
-        # subset_indices = list(range(600))
-        # train_dataset = Subset(train_dataset, subset_indices)
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True, drop_last=True)
@@ -90,7 +88,8 @@ def main():
     model = ResNetSimCLR(base_model=args.arch, out_dim=args.out_dim)
     if args.model:
         checkpoint = torch.load(args.model)
-        model.load_state_dict(checkpoint["state_dict"])
+        state_dict = checkpoint["state_dict"]
+        model.load_state_dict(state_dict=state_dict, strict=False)    
         optimizer = None
         scheduler = None
     else:
@@ -108,7 +107,15 @@ def main():
         with torch.cuda.device(args.gpu_index):
             simclr = SimCLR(model=model, optimizer=optimizer, scheduler=scheduler, args=args)
             print(len(test_dataset))
-            simclr.test(test_loader, len(test_dataset), args.device)
+
+            train_dataset = dataset.get_dataset(args.dataset_name, args.n_views)       
+            subset_indices = list(range(600))
+            train_dataset_600 = Subset(train_dataset, subset_indices)
+            train_loader = torch.utils.data.DataLoader(
+                           train_dataset_600, batch_size=args.batch_size, shuffle=True,
+                           num_workers=args.workers, drop_last=False)
+            simclr.train2(train_loader, args.device)
+            simclr.test(test_loader, args.device)
 
 if __name__ == "__main__":
     main()

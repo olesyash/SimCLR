@@ -108,7 +108,7 @@ class SimCLR(object):
         }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
         logging.info(f"Model checkpoint and metadata has been saved at {self.writer.log_dir}.")
 
-    def test(self, test_loader, test_set_len, device):
+    def test(self, test_loader, device):
         # save config file
         save_config_file(self.writer.log_dir, self.args)
         for param in self.model.parameters():
@@ -132,32 +132,35 @@ class SimCLR(object):
         logging.info(f"Test accuracy: {top1_accuracy.item()}")
         logging.info("Test has finished.")
     
-    # def test(self, test_loader, test_set_len):
-    #     # save config file
-    #     save_config_file(self.writer.log_dir, self.args)
+    def train2(self, train_loader, device):
+        epochs = 1500
+        # freeze all layers but the last fc
+        for name, param in self.model.named_parameters():
+            if name not in ['backbone.fc.0.weight', 'backbone.fc.0.bias',
+                            'backbone.fc.2.weight', 'backbone.fc.2.bias']:
+                param.requires_grad = False
 
-    #     running_corrects = 0
-    #     logging.info(f"Start SimCLR test")
-    #     logging.info(f"Testing with gpu: {not self.args.disable_cuda}.")
+        parameters = list(filter(lambda p: p.requires_grad, self.model.parameters()))
+        assert len(parameters) == 4  # fc.weight, fc.bias
 
-    #     for images, labels in tqdm(test_loader):
-    #         images = torch.cat(images, dim=0)
-    #         images = images.to(self.args.device)
-    #         labels = labels.to(self.args.device)
-    #         for param in self.model.parameters():
-    #             param.requires_grad = False
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=3e-4, weight_decay=0.0008)
+        criterion = torch.nn.CrossEntropyLoss().to(device)
+        for epoch in range(epochs):
+            top1_train_accuracy = 0
+            for counter, (images, labels) in enumerate(train_loader):
+                images = torch.cat(images, dim=0)
+                images = images.to(device)
+              
+                labels = labels.to(device)
 
-    #         with autocast(enabled=self.args.fp16_precision):
-    #             features = self.model(images)
-    #             logits, _ = self.info_nce_loss(features)
-    #             _, preds = torch.max(logits, 1)
-    #             print("Size of logits: ", logits.size())
-    #             print("Size of preds: ", preds.size())
-    #             print("Size of labels: ", labels.size())
-    #             running_corrects += torch.sum(preds == labels)
+                logits = self.model(images)
+                loss = criterion(logits, labels)
+                top1 = accuracy(logits, labels, topk=(1,))
+                top1_train_accuracy += top1[0]
 
-    #     logging.info(f"Running_corrects: {running_corrects}")
-    #     epoch_acc = running_corrects.double() / test_set_len * 100    
-    #     logging.info(f"Test accuracy: {epoch_acc}")
-    #     logging.info("Test has finished.")
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
+            top1_train_accuracy /= (counter + 1)
+            logging.info(f"Epoch {epoch}\tTop1 Train accuracy {top1_train_accuracy.item()}")
